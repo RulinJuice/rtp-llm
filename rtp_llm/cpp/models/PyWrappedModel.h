@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 #include <mutex>
+#include "kmonitor/client/MetricsReporter.h"
+#include "rtp_llm/cpp/cache/KVCacheManager.h"
 #include "rtp_llm/models_py/bindings/core/Types.h"
 #include "rtp_llm/models_py/bindings/core/DeviceData.h"
 #include <pybind11/pybind11.h>
@@ -85,14 +87,17 @@ private:
     torch::Tensor                            residual_scale_;
     ModelBufferHolder                        buffer_holder_;
 
-    GraphBase* graph_runner_{nullptr};
-    py::object py_model_;
-    py::object held_attn_pyobj_;
-    bool       enable_cuda_graph_{false};
-    bool       is_prefill_cuda_graph_mode_{false};
-    bool       use_spec_decoding_{false};
-    bool       enable_device_perf_{false};
-    bool       check_nan_{false};
+    GraphBase*                   graph_runner_{nullptr};
+    py::object                   py_model_;
+    py::object                   held_attn_pyobj_;
+    bool                         enable_cuda_graph_{false};
+    bool                         is_prefill_cuda_graph_mode_{false};
+    bool                         use_spec_decoding_{false};
+    bool                         enable_device_perf_{false};
+    bool                         check_nan_{false};
+    int64_t                      model_inputs_log_rank_id_{0};
+    int                          model_inputs_log_backup_count_{16};
+    kmonitor::MetricsReporterPtr model_inputs_log_metrics_reporter_;
 
     std::unique_ptr<IContextParallelProcessor> context_parallel_processor_{nullptr};
     std::unique_ptr<CacheStoreAsyncWriter>     cache_store_async_writer_;
@@ -120,7 +125,10 @@ inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
     is_prefill_cuda_graph_mode_(is_prefill_cuda_graph_mode),
     use_spec_decoding_(use_spec_decoding),
     enable_device_perf_(params.profile_debug_logging_config.enable_device_perf),
-    check_nan_(params.profile_debug_logging_config.check_nan) {
+    check_nan_(params.profile_debug_logging_config.check_nan),
+    model_inputs_log_rank_id_(params.parallelism_config.world_rank),
+    model_inputs_log_backup_count_(params.profile_debug_logging_config.log_file_backup_count),
+    model_inputs_log_metrics_reporter_(params.cache_manager ? params.cache_manager->metricsReporter() : nullptr) {
 
     c10::InferenceMode inference_guard(true);
 
