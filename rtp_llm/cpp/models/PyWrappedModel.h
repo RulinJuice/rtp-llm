@@ -5,9 +5,8 @@
 #include "rtp_llm/models_py/bindings/core/torch_utils/TypeConvert.h"
 #include <optional>
 #include <string>
-#include <mutex>
-#include "kmonitor/client/MetricsReporter.h"
-#include "rtp_llm/cpp/cache/KVCacheManager.h"
+#include <memory>
+#include <utility>
 #include "rtp_llm/models_py/bindings/core/Types.h"
 #include "rtp_llm/models_py/bindings/core/DeviceData.h"
 #include <pybind11/pybind11.h>
@@ -29,15 +28,17 @@ namespace py = pybind11;
 namespace rtp_llm {
 
 class KVCacheManager;  // Forward declaration
+class ModelInputsLogger;
 
 class PyWrappedModel: public ModelBase {
 public:
     // py_instance is `py_model` indeedly.
-    PyWrappedModel(const GptModelInitParams& params,
-                   py::object                py_instance,
-                   bool                      is_prefill_cuda_graph_mode = false,
-                   bool                      use_spec_decoding          = false,
-                   const std::vector<int>&   kv_cache_layer_to_group    = {});
+    PyWrappedModel(const GptModelInitParams&          params,
+                   py::object                         py_instance,
+                   bool                               is_prefill_cuda_graph_mode = false,
+                   bool                               use_spec_decoding          = false,
+                   const std::vector<int>&            kv_cache_layer_to_group    = {},
+                   std::shared_ptr<ModelInputsLogger> model_inputs_logger        = nullptr);
     ~PyWrappedModel();
 
     GptModelOutputs forward(const GptModelInputs& inputs) override;
@@ -87,17 +88,15 @@ private:
     torch::Tensor                            residual_scale_;
     ModelBufferHolder                        buffer_holder_;
 
-    GraphBase*                   graph_runner_{nullptr};
-    py::object                   py_model_;
-    py::object                   held_attn_pyobj_;
-    bool                         enable_cuda_graph_{false};
-    bool                         is_prefill_cuda_graph_mode_{false};
-    bool                         use_spec_decoding_{false};
-    bool                         enable_device_perf_{false};
-    bool                         check_nan_{false};
-    int64_t                      model_inputs_log_rank_id_{0};
-    int                          model_inputs_log_backup_count_{16};
-    kmonitor::MetricsReporterPtr model_inputs_log_metrics_reporter_;
+    GraphBase*                         graph_runner_{nullptr};
+    py::object                         py_model_;
+    py::object                         held_attn_pyobj_;
+    bool                               enable_cuda_graph_{false};
+    bool                               is_prefill_cuda_graph_mode_{false};
+    bool                               use_spec_decoding_{false};
+    bool                               enable_device_perf_{false};
+    bool                               check_nan_{false};
+    std::shared_ptr<ModelInputsLogger> model_inputs_logger_;
 
     std::unique_ptr<IContextParallelProcessor> context_parallel_processor_{nullptr};
     std::unique_ptr<CacheStoreAsyncWriter>     cache_store_async_writer_;
@@ -111,11 +110,12 @@ private:
 };
 
 // NOTE(wangyin): constructor can not be compiled correctly when placed in cc file.
-inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
-                                      py::object                py_instance,
-                                      bool                      is_prefill_cuda_graph_mode,
-                                      bool                      use_spec_decoding,
-                                      const std::vector<int>&   kv_cache_layer_to_group):
+inline PyWrappedModel::PyWrappedModel(const GptModelInitParams&          params,
+                                      py::object                         py_instance,
+                                      bool                               is_prefill_cuda_graph_mode,
+                                      bool                               use_spec_decoding,
+                                      const std::vector<int>&            kv_cache_layer_to_group,
+                                      std::shared_ptr<ModelInputsLogger> model_inputs_logger):
     device_props_(buildExecProperties(params.parallelism_config, params.device_resource_config)),
     mla_ops_type_(params.mla_ops_type),
     layer_num_(params.weights.layers.size()),
@@ -126,9 +126,7 @@ inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
     use_spec_decoding_(use_spec_decoding),
     enable_device_perf_(params.profile_debug_logging_config.enable_device_perf),
     check_nan_(params.profile_debug_logging_config.check_nan),
-    model_inputs_log_rank_id_(params.parallelism_config.world_rank),
-    model_inputs_log_backup_count_(params.profile_debug_logging_config.log_file_backup_count),
-    model_inputs_log_metrics_reporter_(params.cache_manager ? params.cache_manager->metricsReporter() : nullptr) {
+    model_inputs_logger_(std::move(model_inputs_logger)) {
 
     c10::InferenceMode inference_guard(true);
 

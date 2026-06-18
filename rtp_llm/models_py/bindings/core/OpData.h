@@ -97,7 +97,6 @@ struct GptModelInputs {
 
 public:
     std::string debugString(bool force = false) const;
-    std::string modelInputsLogString() const;
 };
 
 struct GptModelOutputs {
