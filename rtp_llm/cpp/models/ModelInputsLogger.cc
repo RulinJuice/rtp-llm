@@ -126,12 +126,12 @@ void ModelInputsLogger::log(const GptModelInputs& inputs) {
     }
 
     const auto total_start_us = autil::TimeUtility::currentTimeInMicroSeconds();
-    std::call_once(init_once_, [&]() { initOutputDir(); });
-    if (!output_dir_valid_) {
-        return;
-    }
-
     try {
+        std::call_once(init_once_, [&]() { initOutputDir(); });
+        if (!output_dir_valid_) {
+            return;
+        }
+
         const auto now_us     = autil::TimeUtility::currentTimeInMicroSeconds();
         const auto dump_index = dump_index_.fetch_add(1, std::memory_order_relaxed);
         const auto file_path  = std::filesystem::path(output_dir_)
@@ -159,11 +159,20 @@ void ModelInputsLogger::log(const GptModelInputs& inputs) {
         }
     } catch (const std::exception& e) {
         RTP_LLM_LOG_WARNING("Failed to dump model inputs: %s", e.what());
+    } catch (...) {
+        RTP_LLM_LOG_WARNING("Failed to dump model inputs: unknown exception");
     }
 
     const auto total_us = autil::TimeUtility::currentTimeInMicroSeconds() - total_start_us;
-    if (metrics_reporter_) {
-        metrics_reporter_->report(total_us, "rtp_llm_model_inputs_log_us", kmonitor::MetricType::GAUGE, nullptr, true);
+    try {
+        if (metrics_reporter_) {
+            metrics_reporter_->report(
+                total_us, "rtp_llm_model_inputs_log_us", kmonitor::MetricType::GAUGE, nullptr, true);
+        }
+    } catch (const std::exception& e) {
+        RTP_LLM_LOG_WARNING("Failed to report model inputs dump metric: %s", e.what());
+    } catch (...) {
+        RTP_LLM_LOG_WARNING("Failed to report model inputs dump metric: unknown exception");
     }
 }
 
