@@ -1,4 +1,5 @@
 load("//:def.bzl", "copts")
+load("@arch_config//:arch_select.bzl", "torch_deps")
 
 # Sample infos - model sampling data structures
 cc_library(
@@ -106,6 +107,25 @@ cc_library(
         "//rtp_llm/models_py/bindings/core:exec_ops_hdr",
         "//rtp_llm/cpp/utils:core_utils",
     ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "model_inputs_logger",
+    srcs = [
+        "ModelInputsLogger.cc",
+    ],
+    hdrs = [
+        "ModelInputsLogger.h",
+    ],
+    deps = [
+        "//rtp_llm/cpp/metrics",
+        "//rtp_llm/cpp/utils:core_utils",
+        "//rtp_llm/models_py/bindings/core:op_data",
+        "@havenask//aios/autil:env_util",
+        "@havenask//aios/autil:time",
+    ] + torch_deps(),
+    copts = copts(),
     visibility = ["//visibility:public"],
 )
 
